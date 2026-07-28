@@ -1,0 +1,29 @@
+{
+  "best_model": "random_forest",
+  "results": {
+    "logistic_regression": {
+      "precision": 0.5050847457627119,
+      "recall": 0.7967914438502673,
+      "f1": 0.6182572614107884,
+      "auc": 0.8397891963109354
+    },
+    "random_forest": {
+      "precision": 0.5336976320582878,
+      "recall": 0.7834224598930482,
+      "f1": 0.6348862405200434,
+      "auc": 0.8418029398847813
+    }
+  },
+  "top_risk_factors": {
+    "DeviceProtection": 0.022311275675763034,
+    "OnlineBackup": 0.02869659532481769,
+    "PaymentMethod": 0.03224305246286668,
+    "InternetService": 0.050360397331298774,
+    "TechSupport": 0.08490423787834145,
+    "MonthlyCharges": 0.1075766721218436,
+    "OnlineSecurity": 0.10775100917015798,
+    "TotalCharges": 0.11227865515598406,
+    "tenure": 0.13749986934591504,
+    "Contract": 0.22239836134278154
+  }
+}

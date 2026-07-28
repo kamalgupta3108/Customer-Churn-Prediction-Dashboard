@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Environment
+.env
+
+# OS
+.DS_Store
+
+# Data (optional - some teams commit small sample data, others don't)
+# Keeping the dataset tracked here since it's small and needed for reproducibility
+
+# IDE
+.vscode/
+.idea/
