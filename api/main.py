@@ -9,9 +9,24 @@ RUN THIS FILE WITH:
 (explained in detail below)
 """
 
-from fastapi import FastAPI, HTTPException
-from api.models.schemas import CustomerInput, PredictionOutput, HealthOutput
+from typing import List
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.orm import Session
+
+from api.models.schemas import (
+    CustomerInput, PredictionOutput, HealthOutput,
+    UserCreate, UserOut, Token, HistoryItem,
+)
 from api.services.predictor import predictor
+from api.services import auth
+from api.db.database import Base, engine, get_db
+from api.db import models
+
+# This creates all tables defined in db/models.py, IF they don't already
+# exist. Running this every startup is safe - it won't wipe existing data
+# or recreate tables that are already there.
+Base.metadata.create_all(bind=engine)
 
 # This creates our FastAPI application. Think of "app" as the whole
 # restaurant - we'll now define what happens at each "counter" (endpoint).
@@ -44,30 +59,103 @@ def health_check():
 
 
 # ---------------------------------------------------------------------
-# ENDPOINT 2: Predict churn for one customer
+# ENDPOINT 2: Register a new user
 # ---------------------------------------------------------------------
-# @app.post("/predict") means: whenever someone sends a POST request to
-# /predict, run this function.
+@app.post("/auth/register", response_model=UserOut)
+def register(user_in: UserCreate, db: Session = Depends(get_db)):
+    # Check if this email is already taken
+    existing = db.query(models.User).filter(models.User.email == user_in.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Hash the password BEFORE saving - see auth.py for why
+    new_user = models.User(
+        email=user_in.email,
+        hashed_password=auth.hash_password(user_in.password),
+    )
+    db.add(new_user)      # stage the new row
+    db.commit()           # actually write it to the database (like SQL COMMIT)
+    db.refresh(new_user)  # reload it so new_user.id gets filled in
+    return new_user
+
+
+# ---------------------------------------------------------------------
+# ENDPOINT 3: Login - exchange email+password for a token
+# ---------------------------------------------------------------------
+# OAuth2PasswordRequestForm expects form data with fields "username" and
+# "password" - this is a FastAPI/OAuth2 standard convention. We treat the
+# "username" field as the email.
+@app.post("/auth/login", response_model=Token)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == form_data.username).first()
+
+    if not user or not auth.verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # "sub" (subject) is the standard JWT field name for "who is this token about"
+    token = auth.create_access_token(data={"sub": user.email})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+# ---------------------------------------------------------------------
+# ENDPOINT 4: Predict churn for one customer (now PROTECTED - requires login)
+# ---------------------------------------------------------------------
+# "current_user: models.User = Depends(auth.get_current_user)" means:
+# before running this function, FastAPI must successfully verify the
+# caller's token. If it fails, the caller gets a 401 error automatically,
+# and this function's code never runs at all.
 #
-# POST = "here is data, please process it and do something" (used when
-# sending data, unlike GET which just reads)
-#
-# "customer: CustomerInput" tells FastAPI: "expect the incoming request
-# body to match the CustomerInput shape we defined in schemas.py, and
-# automatically validate it before this function even runs."
+# We also now save every prediction to the database, linked to the user
+# who made it - this is what powers the /history endpoint below.
 # ---------------------------------------------------------------------
 @app.post("/predict", response_model=PredictionOutput)
-def predict_churn(customer: CustomerInput):
+def predict_churn(
+    customer: CustomerInput,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        # .model_dump() converts the validated Pydantic object back into
-        # a plain Python dictionary, which is what our predictor expects
         result = predictor.predict(customer.model_dump())
+
+        # Save this prediction to the database, tied to the logged-in user
+        record = models.PredictionRecord(
+            owner_id=current_user.id,
+            contract=customer.Contract,
+            tenure=customer.tenure,
+            monthly_charges=customer.MonthlyCharges,
+            churn_probability=result["churn_probability"],
+            risk_level=result["risk_level"],
+        )
+        db.add(record)
+        db.commit()
+
         return result
     except Exception as e:
-        # If anything goes wrong during prediction, we don't want the
-        # server to crash or return a confusing raw error to the user.
-        # HTTPException sends back a clean, proper error response instead.
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+
+# ---------------------------------------------------------------------
+# ENDPOINT 5: View my past predictions (also PROTECTED)
+# ---------------------------------------------------------------------
+@app.get("/history", response_model=List[HistoryItem])
+def get_history(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    # This is the ORM equivalent of:
+    # SELECT * FROM prediction_records WHERE owner_id = <current_user.id>
+    # ORDER BY created_at DESC;
+    records = (
+        db.query(models.PredictionRecord)
+        .filter(models.PredictionRecord.owner_id == current_user.id)
+        .order_by(models.PredictionRecord.created_at.desc())
+        .all()
+    )
+    return records
 
 
 # ---------------------------------------------------------------------

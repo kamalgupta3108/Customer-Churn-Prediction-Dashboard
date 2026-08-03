@@ -84,3 +84,38 @@ class HealthOutput(BaseModel):
     """Simple response for our /health endpoint."""
     status: str
     model_loaded: bool
+
+
+# --- Auth-related schemas (new for Day 3) ---
+
+class UserCreate(BaseModel):
+    """What a client must send to register a new account."""
+    email: str
+    password: str
+
+
+class UserOut(BaseModel):
+    """What we send BACK after registration - notice: no password field.
+    We must never send password data back, even hashed."""
+    id: int
+    email: str
+
+    model_config = {"from_attributes": True}  # lets us build this directly from a SQLAlchemy User object
+
+
+class Token(BaseModel):
+    """What we send back after a successful login - the 'wristband'."""
+    access_token: str
+    token_type: str = "bearer"
+
+
+class HistoryItem(BaseModel):
+    """One row of a user's past prediction history."""
+    id: int
+    contract: str
+    tenure: int
+    monthly_charges: float
+    churn_probability: float
+    risk_level: str
+
+    model_config = {"from_attributes": True}
