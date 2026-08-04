@@ -119,3 +119,22 @@ class HistoryItem(BaseModel):
     risk_level: str
 
     model_config = {"from_attributes": True}
+
+
+# --- Batch-related schemas (new for Day 4) ---
+
+class BatchUploadResponse(BaseModel):
+    """What we return immediately after accepting a CSV upload."""
+    batch_id: int
+    status: str
+    message: str
+
+
+class BatchStatusResponse(BaseModel):
+    """What we return when checking on a batch's progress."""
+    batch_id: int
+    status: str
+    total_rows: int
+    processed_rows: int
+    failed_rows: int
+    error_message: str | None = None

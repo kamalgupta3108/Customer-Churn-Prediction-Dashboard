@@ -63,12 +63,27 @@ class ChurnPredictor:
         """
         df = pd.DataFrame([customer])
 
+        # Same fix as train.py: some real-world data has numeric columns
+        # stored as messy text (e.g. a blank space " " instead of a real
+        # number, for brand-new customers with 0 charges yet). Force-convert
+        # to numeric, and anything that fails becomes NaN, which we fill
+        # with 0. Without this, a single bad row can crash the whole batch.
+        for col in self.numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
         # Apply the SAME label encoders we saved from training.
         # We use .transform() (not .fit_transform()) because we're not
         # learning new categories here - we're reusing what was already
         # learned on the training data.
         for col, encoder in self.label_encoders.items():
             if col in df.columns:
+                # Guard against a category the encoder has never seen
+                # (e.g. a typo, or a brand new plan type that didn't exist
+                # during training) - without this, .transform() would
+                # crash the whole request/batch on a single bad value.
+                known_classes = set(encoder.classes_)
+                df[col] = df[col].apply(lambda v: v if v in known_classes else encoder.classes_[0])
                 df[col] = encoder.transform(df[col])
 
         # Apply the SAME scaler we saved from training

@@ -90,7 +90,8 @@ cloning the repo can reproduce the results.
 - [x] Day 1: Data prep + model training + evaluation
 - [x] Day 2: FastAPI backend serving predictions
 - [x] Day 3: PostgreSQL database + JWT authentication + prediction history
-- [ ] Day 4-5: Redis caching + async batch processing
+- [x] Day 4: Redis caching + async batch processing + rate limiting
+- [ ] Day 5-6: Backend polish, structured logging, tests
 - [ ] Day 6: Backend polish + tests
 - [ ] Day 7-9: React dashboard (upload, results, history, visualizations)
 - [ ] Day 10-11: Docker + deployment

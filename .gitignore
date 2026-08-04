@@ -17,3 +17,7 @@ venv/
 # IDE
 .vscode/
 .idea/
+
+# Temporary uploaded files (batch CSVs are auto-deleted after processing,
+# but this folder shouldn't be committed regardless)
+uploads/

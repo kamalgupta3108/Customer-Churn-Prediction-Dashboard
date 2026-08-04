@@ -9,18 +9,23 @@ RUN THIS FILE WITH:
 (explained in detail below)
 """
 
+import os
+import shutil
+import uuid
 from typing import List
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from api.models.schemas import (
     CustomerInput, PredictionOutput, HealthOutput,
     UserCreate, UserOut, Token, HistoryItem,
+    BatchUploadResponse, BatchStatusResponse,
 )
 from api.services.predictor import predictor
-from api.services import auth
-from api.db.database import Base, engine, get_db
+from api.services import auth, cache
+from api.services.batch_processor import process_batch
+from api.db.database import Base, engine, get_db, SessionLocal
 from api.db import models
 
 # This creates all tables defined in db/models.py, IF they don't already
@@ -119,7 +124,19 @@ def predict_churn(
     db: Session = Depends(get_db),
 ):
     try:
-        result = predictor.predict(customer.model_dump())
+        customer_dict = customer.model_dump()
+
+        # STEP 1: Check the "sticky note board" first - has this EXACT
+        # customer profile been predicted recently? If so, skip the model
+        # entirely and return instantly.
+        cached_result = cache.get_cached_prediction(customer_dict)
+        if cached_result:
+            result = cached_result
+            was_cached = "yes"
+        else:
+            result = predictor.predict(customer_dict)
+            cache.set_cached_prediction(customer_dict, result)
+            was_cached = "no"
 
         # Save this prediction to the database, tied to the logged-in user
         record = models.PredictionRecord(
@@ -129,6 +146,7 @@ def predict_churn(
             monthly_charges=customer.MonthlyCharges,
             churn_probability=result["churn_probability"],
             risk_level=result["risk_level"],
+            from_cache=was_cached,
         )
         db.add(record)
         db.commit()
@@ -136,6 +154,78 @@ def predict_churn(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+
+# ---------------------------------------------------------------------
+# ENDPOINT 6: Upload a CSV of many customers - PROCESSED IN THE BACKGROUND
+# ---------------------------------------------------------------------
+# This is the "smart waiter" pattern. Notice this function does NOT loop
+# through every row itself - it just saves the file, creates a tracking
+# row in the database, and hands the actual work off to BackgroundTasks,
+# then returns IMMEDIATELY. The client doesn't sit there waiting.
+# ---------------------------------------------------------------------
+@app.post("/predict-batch", response_model=BatchUploadResponse)
+def predict_batch(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Rate limit: at most 5 batch uploads per user per 60 seconds.
+    # This protects the system from someone spamming huge uploads.
+    if not cache.check_rate_limit(current_user.id, max_requests=5, window_seconds=60):
+        raise HTTPException(status_code=429, detail="Too many batch uploads. Please wait a minute and try again.")
+
+    # Save the uploaded file to a temp location on disk so our background
+    # task can read it after this request has already finished
+    os.makedirs("uploads", exist_ok=True)
+    temp_path = f"uploads/{uuid.uuid4()}.csv"
+    with open(temp_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # Create the tracking row - status starts as "processing"
+    batch = models.PredictionBatch(owner_id=current_user.id, status="processing")
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+
+    # Hand the real work off to run AFTER this response is sent.
+    # We pass SessionLocal itself (not our current `db` session), because
+    # this task runs later, possibly after `db` here has already closed.
+    background_tasks.add_task(process_batch, batch.id, temp_path, current_user.id, SessionLocal)
+
+    return {
+        "batch_id": batch.id,
+        "status": batch.status,
+        "message": "Batch accepted and is being processed. Poll /batch-status/{batch_id} for progress.",
+    }
+
+
+# ---------------------------------------------------------------------
+# ENDPOINT 7: Check on a batch's progress
+# ---------------------------------------------------------------------
+@app.get("/batch-status/{batch_id}", response_model=BatchStatusResponse)
+def batch_status(
+    batch_id: int,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    batch = db.query(models.PredictionBatch).filter(models.PredictionBatch.id == batch_id).first()
+
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    # Make sure users can only check THEIR OWN batches, not anyone else's
+    if batch.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to view this batch")
+
+    return {
+        "batch_id": batch.id,
+        "status": batch.status,
+        "total_rows": batch.total_rows,
+        "processed_rows": batch.processed_rows,
+        "failed_rows": batch.failed_rows,
+        "error_message": batch.error_message,
+    }
 
 
 # ---------------------------------------------------------------------

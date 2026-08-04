@@ -37,11 +37,35 @@ class User(Base):
     predictions = relationship("PredictionRecord", back_populates="owner")
 
 
+class PredictionBatch(Base):
+    """
+    Represents one CSV upload containing many customers. We track its
+    progress here so the client can poll "how's my big upload going?"
+    instead of the API being frozen/blocked until it's fully done.
+    """
+    __tablename__ = "prediction_batches"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    status = Column(String, default="processing")  # processing | completed | failed
+    total_rows = Column(Integer, default=0)
+    processed_rows = Column(Integer, default=0)
+    failed_rows = Column(Integer, default=0)
+    error_message = Column(String, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    records = relationship("PredictionRecord", back_populates="batch")
+
+
 class PredictionRecord(Base):
     __tablename__ = "prediction_records"
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    batch_id = Column(Integer, ForeignKey("prediction_batches.id"), nullable=True)
 
     # We store the key input details so history is meaningful to look back on
     contract = Column(String)
@@ -51,7 +75,9 @@ class PredictionRecord(Base):
     # The actual prediction result
     churn_probability = Column(Float, nullable=False)
     risk_level = Column(String, nullable=False)
+    from_cache = Column(String, default="no")  # "yes"/"no" - useful for demoing caching later
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     owner = relationship("User", back_populates="predictions")
+    batch = relationship("PredictionBatch", back_populates="records")
