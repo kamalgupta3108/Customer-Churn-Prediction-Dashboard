@@ -27,6 +27,9 @@ from api.services import auth, cache
 from api.services.batch_processor import process_batch
 from api.db.database import Base, engine, get_db, SessionLocal
 from api.db import models
+from api.services.logger import get_logger
+
+logger = get_logger(__name__)
 
 # This creates all tables defined in db/models.py, IF they don't already
 # exist. Running this every startup is safe - it won't wipe existing data
@@ -133,10 +136,12 @@ def predict_churn(
         if cached_result:
             result = cached_result
             was_cached = "yes"
+            logger.info(f"user={current_user.email} prediction=CACHE_HIT risk={result['risk_level']}")
         else:
             result = predictor.predict(customer_dict)
             cache.set_cached_prediction(customer_dict, result)
             was_cached = "no"
+            logger.info(f"user={current_user.email} prediction=CACHE_MISS risk={result['risk_level']} prob={result['churn_probability']}")
 
         # Save this prediction to the database, tied to the logged-in user
         record = models.PredictionRecord(
@@ -153,6 +158,7 @@ def predict_churn(
 
         return result
     except Exception as e:
+        logger.error(f"user={current_user.email} prediction=FAILED error={str(e)}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
@@ -174,6 +180,7 @@ def predict_batch(
     # Rate limit: at most 5 batch uploads per user per 60 seconds.
     # This protects the system from someone spamming huge uploads.
     if not cache.check_rate_limit(current_user.id, max_requests=5, window_seconds=60):
+        logger.warning(f"user={current_user.email} batch_upload=RATE_LIMITED")
         raise HTTPException(status_code=429, detail="Too many batch uploads. Please wait a minute and try again.")
 
     # Save the uploaded file to a temp location on disk so our background
@@ -193,6 +200,7 @@ def predict_batch(
     # We pass SessionLocal itself (not our current `db` session), because
     # this task runs later, possibly after `db` here has already closed.
     background_tasks.add_task(process_batch, batch.id, temp_path, current_user.id, SessionLocal)
+    logger.info(f"user={current_user.email} batch_id={batch.id} batch_upload=ACCEPTED filename={file.filename}")
 
     return {
         "batch_id": batch.id,

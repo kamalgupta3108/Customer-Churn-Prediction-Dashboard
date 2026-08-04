@@ -75,6 +75,17 @@ churn-project/
 └── README.md
 ```
 
+## Running tests
+
+```bash
+pytest tests/ -v
+```
+
+Tests use an isolated in-memory SQLite database and flush the Redis test
+cache before each run, so they never touch real data. Note: you still need
+PostgreSQL and Redis running locally, since the app connects to them at
+import time (a known simplification for this stage of the project).
+
 ## How to run
 
 ```bash
@@ -91,7 +102,8 @@ cloning the repo can reproduce the results.
 - [x] Day 2: FastAPI backend serving predictions
 - [x] Day 3: PostgreSQL database + JWT authentication + prediction history
 - [x] Day 4: Redis caching + async batch processing + rate limiting
-- [ ] Day 5-6: Backend polish, structured logging, tests
+- [x] Day 5: Structured logging + pytest test suite (12 tests)
+- [ ] Day 6-8: React frontend (upload, results, history, dashboard)
 - [ ] Day 6: Backend polish + tests
 - [ ] Day 7-9: React dashboard (upload, results, history, visualizations)
 - [ ] Day 10-11: Docker + deployment

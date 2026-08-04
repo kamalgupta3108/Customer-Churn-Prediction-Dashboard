@@ -25,6 +25,9 @@ from sqlalchemy.orm import Session
 from api.db import models
 from api.services.predictor import predictor
 from api.services.cache import get_cached_prediction, set_cached_prediction
+from api.services.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def process_batch(batch_id: int, csv_path: str, owner_id: int, db_session_factory):
@@ -41,6 +44,7 @@ def process_batch(batch_id: int, csv_path: str, owner_id: int, db_session_factor
         df = pd.read_csv(csv_path)
         batch.total_rows = len(df)
         db.commit()
+        logger.info(f"batch_id={batch_id} status=STARTED total_rows={len(df)}")
 
         for _, row in df.iterrows():
             customer = row.to_dict()
@@ -77,7 +81,7 @@ def process_batch(batch_id: int, csv_path: str, owner_id: int, db_session_factor
             except Exception as row_error:
                 # Log it and move on - don't let one bad row kill 7000 good ones
                 batch.failed_rows += 1
-                print(f"Batch {batch_id}: skipped a row due to error: {row_error}")
+                logger.warning(f"batch_id={batch_id} row_skipped error={row_error}")
 
             db.commit()  # commit progress incrementally so status polling sees live updates
 
@@ -85,11 +89,13 @@ def process_batch(batch_id: int, csv_path: str, owner_id: int, db_session_factor
         from sqlalchemy.sql import func
         batch.completed_at = func.now()
         db.commit()
+        logger.info(f"batch_id={batch_id} status=COMPLETED processed={batch.processed_rows} failed={batch.failed_rows}")
 
     except Exception as e:
         batch.status = "failed"
         batch.error_message = str(e)
         db.commit()
+        logger.error(f"batch_id={batch_id} status=FAILED error={str(e)}")
     finally:
         db.close()
         # Clean up the temp file now that we're done with it, whether
