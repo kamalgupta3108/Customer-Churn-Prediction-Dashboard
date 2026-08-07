@@ -75,6 +75,15 @@ churn-project/
 └── README.md
 ```
 
+## Running the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Opens at http://localhost:5173. Requires the backend (`uvicorn api.main:app --reload`) running at http://localhost:8000 at the same time.
+
 ## Running tests
 
 ```bash
@@ -103,7 +112,8 @@ cloning the repo can reproduce the results.
 - [x] Day 3: PostgreSQL database + JWT authentication + prediction history
 - [x] Day 4: Redis caching + async batch processing + rate limiting
 - [x] Day 5: Structured logging + pytest test suite (12 tests)
-- [ ] Day 6-8: React frontend (upload, results, history, dashboard)
+- [x] Day 6: React frontend - auth, prediction form, results, history
+- [ ] Day 7-8: Dashboard visualizations, batch upload UI, polish
 - [ ] Day 6: Backend polish + tests
 - [ ] Day 7-9: React dashboard (upload, results, history, visualizations)
 - [ ] Day 10-11: Docker + deployment

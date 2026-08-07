@@ -14,6 +14,7 @@ import shutil
 import uuid
 from typing import List
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
@@ -42,6 +43,19 @@ app = FastAPI(
     title="Customer Churn Prediction API",
     description="Predicts whether a telecom customer is likely to churn.",
     version="1.0.0",
+)
+
+# CORS: by default, a browser blocks JavaScript on one origin (our React
+# app at localhost:5173) from calling an API on a different origin (our
+# backend at localhost:8000) - this is a browser security feature, NOT
+# something curl/Postman enforce, which is why testing with curl never
+# revealed this. We explicitly allow our frontend's origin here.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
