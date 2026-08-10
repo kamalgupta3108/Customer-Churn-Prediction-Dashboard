@@ -14,7 +14,7 @@
 import { useState, useRef, useEffect } from "react";
 import { uploadBatch, getBatchStatus } from "../api";
 
-function BatchUpload({ token, onBatchComplete }) {
+function BatchUpload({ token, onProgress }) {
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState(null); // null | {status, total_rows, processed_rows, failed_rows}
   const [error, setError] = useState("");
@@ -57,14 +57,19 @@ function BatchUpload({ token, onBatchComplete }) {
           const currentStatus = await getBatchStatus(batch_id, token);
           setStatus(currentStatus);
 
+          // Tell App.jsx to refresh history/dashboard on EVERY poll tick,
+          // not just once at the very end. Since the backend commits each
+          // row to the database as it's processed (Day 4), the data is
+          // genuinely there to show - we just weren't asking for it until
+          // now. This gives real, honest live updates instead of only
+          // refreshing once the whole batch finishes.
+          onProgress();
+
           // Once the backend says it's done (either way), stop polling -
           // otherwise we'd keep hitting the API forever, wastefully.
           if (currentStatus.status === "completed" || currentStatus.status === "failed") {
             stopPolling();
             setUploading(false);
-            if (currentStatus.status === "completed") {
-              onBatchComplete(); // tells App.jsx to refresh history/dashboard
-            }
           }
         } catch (pollError) {
           stopPolling();

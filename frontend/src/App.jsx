@@ -39,7 +39,7 @@ function App() {
     setHistoryRefresh((prev) => prev + 1);
   }
 
-  function handleBatchComplete() {
+  function handleBatchProgress() {
     setHistoryRefresh((prev) => prev + 1);
   }
 
@@ -92,7 +92,7 @@ function App() {
         </div>
 
         <div className={activeTab === "batch" ? "" : "hidden"}>
-          <BatchUpload token={token} onBatchComplete={handleBatchComplete} />
+          <BatchUpload token={token} onProgress={handleBatchProgress} />
           <HistoryTable token={token} refreshTrigger={historyRefresh} />
         </div>
 

@@ -1,0 +1,79 @@
+# docker-compose.yml
+# --------------------
+# Describes our ENTIRE stack - backend, frontend, database, cache - as one
+# set of connected services, so `docker-compose up` starts everything
+# together, correctly networked, instead of us manually running 4 separate
+# terminal commands like we've been doing so far.
+#
+# KEY CONCEPT: containers on the same docker-compose network can reach
+# each other BY SERVICE NAME, like a hostname. Our backend connects to
+# PostgreSQL using the hostname "db" (not "localhost") - Docker's internal
+# networking automatically routes "db" to the postgres container.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: churn_db
+    ports:
+      - "5432:5432"
+    volumes:
+      # A "volume" persists data outside the container's own temporary
+      # filesystem. Without this, every time we rebuild/restart the
+      # container, our entire database would be wiped clean.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Note "db" and "redis" here - these are the SERVICE NAMES above,
+      # not "localhost". This is the whole point of docker-compose's
+      # internal networking.
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/churn_db
+      SECRET_KEY: change_this_to_a_long_random_string_before_deploying
+      ACCESS_TOKEN_EXPIRE_MINUTES: "60"
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      # "condition: service_healthy" means: don't even START the backend
+      # until postgres has confirmed (via the healthcheck above) it's
+      # actually ready to accept connections - avoids a race condition
+      # where our backend tries to connect before the database has
+      # finished starting up.
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
